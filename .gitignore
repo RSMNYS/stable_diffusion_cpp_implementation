@@ -30,3 +30,21 @@
 *.exe
 *.out
 *.app
+
+# Python venv 
+.env
+
+#TFLite models
+*.tflite
+
+# Ignore Bazel build directories
+bazel-*
+
+# Ignore Bazel output and temp directories
+/bazel-bin
+/bazel-out
+/bazel-testlogs
+/bazel-genfiles
+
+# Ignore any other Bazel cache directories
+.cache/bazel
