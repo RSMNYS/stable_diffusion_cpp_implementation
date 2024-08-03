@@ -1,5 +1,4 @@
 #include <getopt.h>
-
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -8,14 +7,11 @@
 #include <string>
 #include <vector>
 #include <valarray>
-
 #include "tensorflow/lite/builtin_ops.h"
 #include "tensorflow/lite/interpreter.h"
 #include "tensorflow/lite/kernels/register.h"
 #include "tensorflow/lite/model_builder.h"
-#include "constants.h"
 #include "bpe.h"
-
 #include "stable_diffusion.h"
 #include "scheduling_util.h"
 
@@ -33,33 +29,60 @@ std::vector<float> get_normal(unsigned numbers, unsigned seed = 5, float mean = 
     return d;
 }
 
-StableDiffusion::StableDiffusion(const std::string &model_text_encoder,
-                                 const std::string &model_first,
-                                 const std::string &model_second,
-                                 const std::string &model_decoder)
+StableDiffusion::StableDiffusion(const std::string &model_text_encoder_path,
+                                 const std::string &model_first_path,
+                                 const std::string &model_second_path,
+                                 const std::string &model_decoder_path)
+    : model_text_encoder_path(model_text_encoder_path),
+      model_first_path(model_first_path),
+      model_second_path(model_second_path),
+      model_decoder_path(model_decoder_path) {}
+
+void StableDiffusion::initialize_text_encoder()
 {
-    std::cout << "Loading model: text_encoder" << std::endl;
-    load_model(model_text_encoder, text_encoder);
-    std::cout << "Loading model: first_model" << std::endl;
-    load_model(model_first, first_model);
-    std::cout << "Loading model: second_model" << std::endl;
-    load_model(model_second, second_model);
-    std::cout << "Loading model: decoder" << std::endl;
-    load_model(model_decoder, decoder);
-    std::cout << "Models loaded successfully" << std::endl;
+    if (!text_encoder) {
+        std::cout << "Loading text encoder model..." << std::endl;
+        load_model(model_text_encoder_path, text_encoder_model, text_encoder);
+    }
 }
 
-// Encode text using the text encoder model
-std::vector<float> StableDiffusion::encode_text(const std::vector<int>& encoded, const std::vector<int>& pos_ids)
+void StableDiffusion::initialize_diffusion_models()
 {
-    std::cout << "encode_text" << std::endl;
+    if (!first_model || !second_model) {
+        std::cout << "Loading diffusion models..." << std::endl;
+        load_model(model_first_path, first_model_model, first_model);
+        load_model(model_second_path, second_model_model, second_model);
+    }
+}
+
+void StableDiffusion::initialize_decoder()
+{
+    if (!decoder) {
+        std::cout << "Loading decoder model..." << std::endl;
+        load_model(model_decoder_path, decoder_model, decoder);
+    }
+}
+
+std::vector<float> StableDiffusion::encode_prompt(const std::string &prompt)
+{
+    initialize_text_encoder();
+
+    bpe bpe_encoder;
+    auto encoded = bpe_encoder.encode(prompt);
+    auto pos_ids = bpe_encoder.position_ids();
+
     return run_inference(text_encoder, encoded, pos_ids);
 }
 
-// Decode latent representation using the decoder model
-std::vector<float> StableDiffusion::decode(const std::vector<float> &latent)
+std::vector<float> StableDiffusion::encode_unconditional()
 {
-    return run_inference(decoder, latent);
+    initialize_text_encoder();
+
+    bpe bpe_encoder;
+    auto unconditioned_tokens = bpe_encoder.unconditioned_tokens();
+    auto pos_ids = bpe_encoder.position_ids();
+
+    return run_inference(text_encoder, unconditioned_tokens, pos_ids);
 }
 
 std::vector<float> StableDiffusion::diffusion_step(const std::vector<float> &latent,
@@ -71,39 +94,14 @@ std::vector<float> StableDiffusion::diffusion_step(const std::vector<float> &lat
     return run_inference(second_model, first_output);
 }
 
-std::vector<uint8_t> StableDiffusion::generate_image(const std::string &prompt, int num_steps, int seed)
+std::vector<float> StableDiffusion::diffusion_process(const std::vector<float> &encoded_text, const std::vector<float> &unconditional_encoded_text, int num_steps, int seed)
 {
-    bpe bpe_encoder;
-    std::cout << "Encoding prompt" << std::endl;
-    auto encoded = bpe_encoder.encode(prompt);
-    
-    std::cout << "Encoded prompt: ";
-    for (const auto& token: encoded) {
-       std::cout << token << " ";
-    }
-    std::cout << std::endl;
-
-    std::cout << "Generating position IDs." << std::endl;
-    auto pos_ids = bpe_encoder.position_ids();
-    std::cout << "Position IDs: ";
-    for (const auto& id : pos_ids) {
-        std::cout << id << " ";
-    }
-    std::cout << std::endl;
-
-    // Add log before calling encode_text
-    std::cout << "Calling encode_text with encoded and pos_ids." << std::endl;
-    auto encoded_text = encode_text(encoded, pos_ids);
-    std::cout << "Completed call to encode_text." << std::endl;
-
-    // Add log before calling encode_text for unconditional tokens
-    std::cout << "Calling encode_text with unconditioned tokens and pos_ids." << std::endl;
-    auto unconditional_text = encode_text(bpe_encoder.unconditioned_tokens(), pos_ids);
-    std::cout << "Completed call to encode_text for unconditioned tokens." << std::endl;
+    initialize_diffusion_models();
 
     float unconditional_guidance_scale = 7.5;
     auto noise = get_normal(64 * 64 * 4, seed);
     auto latent = noise;
+
     auto timesteps = get_timesteps(1, 1000, 1000 / num_steps);
     auto alphas_tuple = get_initial_alphas(timesteps);
     auto alphas = std::get<0>(alphas_tuple);
@@ -111,37 +109,37 @@ std::vector<uint8_t> StableDiffusion::generate_image(const std::string &prompt, 
 
     for (int i = timesteps.size() - 1; i >= 0; i--)
     {
-        std::cout << "Starting step " << (timesteps.size() - 1 - i) << " with timestep " << timesteps[i] << std::endl;
+        std::cout << "Step " << timesteps.size() - 1 - i << "\n";
 
         auto latent_prev = latent;
-        std::cout << "Generated latent_prev for step " << (timesteps.size() - 1 - i) << std::endl;
-
         auto t_emb = get_timestep_embedding(timesteps[i]);
-        std::cout << "Generated t_emb for step " << (timesteps.size() - 1 - i) << std::endl;
 
-        auto unconditional_latent = diffusion_step(latent, t_emb, unconditional_text);
-        std::cout << "Generated unconditional_latent for step " << (timesteps.size() - 1 - i) << std::endl;
-
+        auto unconditional_latent = diffusion_step(latent, t_emb, unconditional_encoded_text);
         latent = diffusion_step(latent, t_emb, encoded_text);
-        std::cout << "Updated latent for step " << (timesteps.size() - 1 - i) << std::endl;
 
         std::valarray<float> l(latent.data(), latent.size());
         std::valarray<float> l_prev(latent_prev.data(), latent_prev.size());
         std::valarray<float> u(unconditional_latent.data(), unconditional_latent.size());
+
         l = u + unconditional_guidance_scale * (l - u);
-        std::cout << "Updated valarray l for step " << (timesteps.size() - 1 - i) << std::endl;
 
         auto a_t = alphas[i];
         auto a_prev = alphas_prev[i];
-        std::cout << "Alpha values for step " << (timesteps.size() - 1 - i) << " - a_t: " << a_t << ", a_prev: " << a_prev << std::endl;
 
         auto prev_x0 = (l_prev - sqrtf(1.0 - a_t) * l) / sqrtf(a_t);
         l = (l * sqrtf(1.0 - a_prev) + sqrtf(a_prev) * prev_x0);
         latent.assign(std::begin(l), std::end(l));
-        std::cout << "Completed step " << (timesteps.size() - 1 - i) << std::endl;
     }
 
-    auto decoded = decode(latent);
+    return latent;
+}
+
+std::vector<uint8_t> StableDiffusion::decode_image(const std::vector<float> &latent)
+{
+    initialize_decoder();
+
+    auto decoded = run_inference(decoder, latent);
+
     std::valarray<float> d(decoded.data(), decoded.size());
     d = (d + 1) / 2 * 255;
     std::vector<uint8_t> decoded_uint8;
@@ -151,79 +149,108 @@ std::vector<uint8_t> StableDiffusion::generate_image(const std::string &prompt, 
             e = 255;
         if (e < 0.0)
             e = 0;
-        decoded_uint8.push_back((uint8_t)e);
+        decoded_uint8.push_back(static_cast<uint8_t>(e));
     }
+
     return decoded_uint8;
 }
 
-void StableDiffusion::load_model(const std::string &model_path, std::unique_ptr<tflite::Interpreter> &interpreter)
+std::vector<uint8_t> StableDiffusion::generate_image(const std::string &prompt, int num_steps, int seed)
 {
-    auto model = tflite::FlatBufferModel::BuildFromFile(model_path.c_str());
-    tflite::ops::builtin::BuiltinOpResolver resolver;
-    tflite::InterpreterBuilder(*model, resolver)(&interpreter);
-    interpreter->AllocateTensors();
+    std::cout << "Prompt encoding started" << std::endl;
+    auto encoded_text = encode_prompt(prompt);
+    auto unconditional_encoded_text = encode_unconditional();
+    std::cout << "Diffusion process started" << std::endl;
+    auto latent = diffusion_process(encoded_text, unconditional_encoded_text, num_steps, seed);
+    std::cout << "Image decoding started" << std::endl;
+    return decode_image(latent);
 }
 
-// Run inference on text encoding model
-std::vector<float> StableDiffusion::run_inference(std::unique_ptr<tflite::Interpreter>& interpreter,
-                                                  const std::vector<int>& encoded,
-                                                  const std::vector<int>& pos_ids)
+void StableDiffusion::load_model(const std::string &model_path, 
+                                 std::unique_ptr<tflite::FlatBufferModel> &model, 
+                                 std::unique_ptr<tflite::Interpreter> &interpreter)
 {
-    std::cout << "encode_text inference start" << std::endl;
-
-    auto raw_interpreter = interpreter.get();
-
-    std::cout << "Raw pointer created: " << static_cast<const void*>(raw_interpreter) << std::endl;
-
-    const std::vector<int> inputs = raw_interpreter->inputs();
-    std::copy(pos_ids.begin(), pos_ids.end(), raw_interpreter->typed_input_tensor<int>(0));
-    std::copy(encoded.begin(), encoded.end(), raw_interpreter->typed_input_tensor<int>(1));
-
-    if (raw_interpreter->Invoke() != kTfLiteOk) {
-        std::cout << "Failed to invoke tflite!\n" << std::endl;
+    model = tflite::FlatBufferModel::BuildFromFile(model_path.c_str());
+    if (!model) {
+        std::cerr << "Failed to load model from: " << model_path << std::endl;
         exit(-1);
     }
 
-    const std::vector<int> outputs = raw_interpreter->outputs();
-    auto output = raw_interpreter->typed_tensor<float>(outputs[0]);
-    return std::vector<float>(output, output + raw_interpreter->tensor(outputs[0])->bytes / 4);
+    tflite::ops::builtin::BuiltinOpResolver resolver;
+    tflite::InterpreterBuilder builder(*model, resolver);
+    builder(&interpreter);
+
+    if (!interpreter || interpreter->AllocateTensors() != kTfLiteOk) {
+        std::cerr << "Failed to create interpreter for model: " << model_path << std::endl;
+        exit(-1);
+    }
 }
 
-// Run inference on decoder model
-std::vector<float> StableDiffusion::run_inference(std::unique_ptr<tflite::Interpreter>& interpreter,
-                                                  const std::vector<float> &input)
+std::vector<float> StableDiffusion::run_inference(std::unique_ptr<tflite::Interpreter> &interpreter,
+                                                  const std::vector<int> &encoded,
+                                                  const std::vector<int> &pos_ids)
 {
-    auto inputs = interpreter->inputs();
-    std::copy(input.begin(), input.end(), interpreter->typed_input_tensor<float>(0));
+    
+    const std::vector<int> inputs = interpreter->inputs();
+    std::copy(pos_ids.begin(), pos_ids.end(), interpreter->typed_input_tensor<int>(0));
+    std::copy(encoded.begin(), encoded.end(), interpreter->typed_input_tensor<int>(1));
 
-    interpreter->Invoke();
+    if (interpreter->Invoke() != kTfLiteOk)
+    {
+        std::cerr << "Failed to invoke tflite!\n"
+                  << std::endl;
+        exit(-1);
+    }
 
-    auto outputs = interpreter->outputs();
+    const std::vector<int> outputs = interpreter->outputs();
     auto output = interpreter->typed_tensor<float>(outputs[0]);
     return std::vector<float>(output, output + interpreter->tensor(outputs[0])->bytes / 4);
 }
 
-// Run inference on diffusion model
-std::vector<float> StableDiffusion::run_inference(std::unique_ptr<tflite::Interpreter>& interpreter,
+std::vector<float> StableDiffusion::run_inference(std::unique_ptr<tflite::Interpreter> &interpreter,
+                                                  const std::vector<float> &input)
+{
+    const std::vector<int> inputs = interpreter->inputs();
+    std::copy(input.begin(), input.end(), interpreter->typed_input_tensor<float>(0));
+
+    if (interpreter->Invoke() != kTfLiteOk)
+    {
+        std::cerr << "Failed to invoke tflite!\n"
+                  << std::endl;
+        exit(-1);
+    }
+
+    const std::vector<int> outputs = interpreter->outputs();
+    auto output = interpreter->typed_tensor<float>(outputs[0]);
+    return std::vector<float>(output, output + interpreter->tensor(outputs[0])->bytes / 4);
+}
+
+std::vector<float> StableDiffusion::run_inference(std::unique_ptr<tflite::Interpreter> &interpreter,
                                                   const std::vector<float> &latent,
                                                   const std::vector<float> &t_emb,
                                                   const std::vector<float> &context)
 {
+    
+    if (interpreter->AllocateTensors() != kTfLiteOk)
+    {
+        std::cerr << "Failed to allocate tensors!" << std::endl;
+        exit(-1);
+    }
+    auto inputs = interpreter->inputs();
+    std::copy(latent.begin(), latent.end(), interpreter->typed_input_tensor<float>(0));
+    std::copy(t_emb.begin(), t_emb.end(), interpreter->typed_input_tensor<float>(1));
+    std::copy(context.begin(), context.end(), interpreter->typed_input_tensor<float>(2));
 
-    auto interpreter_ptr = interpreter.get();
+    if (interpreter->Invoke() != kTfLiteOk)
+    {
+        std::cerr << "Failed to invoke tflite!\n"
+                  << std::endl;
+        exit(-1);
+    }
 
-    std::cout << "Raw pointer created: " << static_cast<const void*>(interpreter_ptr) << std::endl;
-
-    auto inputs = interpreter_ptr->inputs();
-    std::copy(latent.begin(), latent.end(), interpreter_ptr->typed_input_tensor<float>(2));
-    std::copy(t_emb.begin(), t_emb.end(), interpreter_ptr->typed_input_tensor<float>(1));
-    std::copy(context.begin(), context.end(), interpreter_ptr->typed_input_tensor<float>(0));
-
-    interpreter_ptr->Invoke();
-
-    auto outputs = interpreter_ptr->outputs();
-    auto output = interpreter_ptr->typed_tensor<float>(outputs[0]);
-    return std::vector<float>(output, output + interpreter_ptr->tensor(outputs[0])->bytes / 4);
+    auto outputs = interpreter->outputs();
+    auto output = interpreter->typed_tensor<float>(outputs[0]);
+    return std::vector<float>(output, output + interpreter->tensor(outputs[0])->bytes / 4);
 }
 
 std::vector<float> StableDiffusion::get_timestep_embedding(int timestep, int dim, float max_period)

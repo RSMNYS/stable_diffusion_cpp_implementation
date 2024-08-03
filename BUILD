@@ -25,7 +25,7 @@ cc_library(
 
 cc_binary(
     name = "image_generator",
-    srcs = ["main.cc", "stable_diffusion.h", "stable_diffusion.cc", "constants.h", "constants.cc", "scheduling_util.cc", "scheduling_util.h"],
+    srcs = ["main.cc", "stable_diffusion.h", "stable_diffusion.cc", "scheduling_util.cc", "scheduling_util.h"],
     copts = tflite_copts(),
     linkopts = android_linkopts(),
     deps = [
