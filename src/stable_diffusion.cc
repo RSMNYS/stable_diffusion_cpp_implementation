@@ -291,6 +291,27 @@ std::vector<float> StableDiffusion::run_inference(std::unique_ptr<tflite::Interp
     return std::vector<float>(output, output + interpreter->tensor(outputs[0])->bytes / 4);
 }
 
+std::vector<float> StableDiffusion::run_inference(std::unique_ptr<tflite::Interpreter> &interpreter,
+                                                  const std::vector<float> &input)
+{
+    const std::vector<int> inputs = interpreter->inputs();
+
+    std::cout << input.size() << std::endl;
+
+    std::copy(input.begin(), input.end(), interpreter->typed_input_tensor<float>(0));
+
+    if (interpreter->Invoke() != kTfLiteOk)
+    {
+        std::cerr << "Failed to invoke tflite!\n"
+                  << std::endl;
+        exit(-1);
+    }
+
+    const std::vector<int> outputs = interpreter->outputs();
+    auto output = interpreter->typed_tensor<float>(outputs[0]);
+    return std::vector<float>(output, output + interpreter->tensor(outputs[0])->bytes / 4);
+}
+
 std::vector<float> StableDiffusion::get_timestep_embedding(int timestep, int dim, float max_period)
 {
     int half = dim / 2;

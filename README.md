@@ -44,7 +44,7 @@ Ensure you have the following installed:
     Compile the project using Bazel. Ensure you add the `--experimental_repo_remote_exec` flag:
 
     ```sh
-    bazel build -c opt :image_generator --experimental_repo_remote_exec
+    bazel build -c opt src:image_generator --experimental_repo_remote_exec
     ```
 
 4. **Run the Image Generator**
@@ -52,7 +52,13 @@ Ensure you have the following installed:
     Execute the compiled binary to run the image generator:
 
     ```sh
-    bazel-bin/image_generator
+    bazel-bin/src/image_generator
+    ```
+
+5. **Convert raw image to png**
+
+    ```sh
+    magick -depth 8 -size 512x512+0 rgb:generated_image.raw decoded.png
     ```
 
 ## Troubleshooting

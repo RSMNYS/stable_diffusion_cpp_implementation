@@ -56,6 +56,9 @@ private:
     std::vector<float> run_inference(std::unique_ptr<tflite::Interpreter> &interpreter,
                                      const std::vector<int> &encoded,
                                      const std::vector<int> &pos_ids);
+    
+    std::vector<float> run_inference(std::unique_ptr<tflite::Interpreter> &interpreter,
+                                                  const std::vector<float> &input);
 
     std::vector<float> get_timestep_embedding(int timestep, int dim = 320, float max_period = 10000.0);
 };
