@@ -7,10 +7,12 @@
 #include <string>
 #include <vector>
 #include <valarray>
+
 #include "tensorflow/lite/builtin_ops.h"
 #include "tensorflow/lite/interpreter.h"
 #include "tensorflow/lite/kernels/register.h"
 #include "tensorflow/lite/model_builder.h"
+
 #include "bpe.h"
 #include "stable_diffusion.h"
 #include "scheduling_util.h"
