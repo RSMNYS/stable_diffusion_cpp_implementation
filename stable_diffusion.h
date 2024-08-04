@@ -42,10 +42,13 @@ private:
                                          const std::vector<float> &unconditional_encoded_text,
                                          int num_steps, int seed);
     std::vector<uint8_t> decode_image(const std::vector<float> &latent);
-    
+
     std::vector<float> diffusion_step(const std::vector<float> &latent,
                                                    const std::vector<float> &t_emb,
                                                    const std::vector<float> &context);
+
+    int get_tensor_index_by_input_name(std::unique_ptr<tflite::Interpreter> &interpreter, const std::string& name);
+    int get_tensor_index_by_output_name(std::unique_ptr<tflite::Interpreter> &interpreter, const std::string& name);
 
     void load_model(const std::string &model_path, std::unique_ptr<tflite::FlatBufferModel> &model, std::unique_ptr<tflite::Interpreter> &interpreter);
 

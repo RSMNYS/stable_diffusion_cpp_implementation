@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
     StableDiffusion sd(model_text_encoder, model_first, model_second, model_decoder);
 
     std::string prompt = "Super cute fluffy cat warrior in armor, photorealistic, 4K, ultra detailed, vray rendering, unreal engine.";
-    int num_steps = 2;
+    int num_steps = 20;
     int seed = 0;
 
     std::vector<uint8_t> image_data = sd.generate_image(prompt, num_steps, seed);

@@ -89,9 +89,84 @@ std::vector<float> StableDiffusion::diffusion_step(const std::vector<float> &lat
                                                    const std::vector<float> &t_emb,
                                                    const std::vector<float> &context)
 {
+
+    // Prepare the first model's inputs
+    auto first_input_details = first_model->inputs();
+
+    std::copy(context.begin(), context.end(), first_model->typed_input_tensor<float>(0));
+    std::copy(t_emb.begin(), t_emb.end(), first_model->typed_input_tensor<float>(1));
+    std::copy(latent.begin(), latent.end(), first_model->typed_input_tensor<float>(2));
+
+
+    // Invoke the first model
+    if (first_model->Invoke() != kTfLiteOk) {
+        std::cerr << "Failed to invoke the first diffusion model!\n" << std::endl;
+        exit(-1);
+    }
+
+    // Get the outputs from the first model
+    auto first_output_details = first_model->outputs();
+
     
-    std::vector<float> first_output = run_inference(first_model, latent, t_emb, context);
-    return run_inference(second_model, first_output);
+    std::vector<std::vector<float>> first_model_outputs;
+    std::vector<std::string> output_names = {
+        "Identity_6", "Identity_4", "Identity", "input_1", "Identity_12",
+        "Identity_11", "Identity_3", "Identity_10", "Identity_9", "Identity_5",
+        "Identity_8", "Identity_7", "Identity_2"
+    };
+
+    // Prepare the second model's inputs based on first model's outputs
+    auto second_input_details = second_model->inputs();
+
+    std::vector<std::string> input_names = {
+        "args_0", "args_0_1", "args_0_2", "args_0_4", "args_0_3", "args_0_5",
+        "args_0_6", "args_0_7", "args_0_8", "args_0_9", "args_0_10", "args_0_11", "args_0_12"
+    };
+
+
+    for (size_t i = 0; i < input_names.size(); ++i) {
+        int input_index = get_tensor_index_by_input_name(second_model, input_names[i]);
+        int output_index = get_tensor_index_by_output_name(first_model, output_names[i]);
+
+        const std::vector<int> outputs = first_model->outputs();
+        auto output = first_model->typed_tensor<float>(outputs[output_index]);
+        std::copy(output, output + first_model->tensor(outputs[output_index])->bytes / 4, second_model->typed_input_tensor<float>(input_index));
+    }
+
+    // Invoke the second model
+    if (second_model->Invoke() != kTfLiteOk) {
+        std::cerr << "Failed to invoke the second diffusion model!\n" << std::endl;
+        exit(-1);
+    }
+
+    const std::vector<int> outputs = second_model->outputs();
+    auto output = second_model->typed_tensor<float>(outputs[0]);
+    return std::vector<float>(output, output + second_model->tensor(outputs[0])->bytes / sizeof(float));
+}
+
+// Helper function to get tensor index by name
+int StableDiffusion::get_tensor_index_by_input_name(std::unique_ptr<tflite::Interpreter> &interpreter, const std::string& name)
+{
+    const std::vector<int>& output_indices = interpreter->inputs();
+    for (int i = 0; i < output_indices.size(); ++i) {
+        const char* output_name = interpreter->GetInputName(i);
+        
+        if (output_name == name) {
+            return i;
+        }
+    }
+}
+
+int StableDiffusion::get_tensor_index_by_output_name(std::unique_ptr<tflite::Interpreter> &interpreter, const std::string& name)
+{
+    const std::vector<int>& output_indices = interpreter->outputs();
+    for (int i = 0; i < output_indices.size(); ++i) {
+        const char* output_name = interpreter->GetOutputName(i);
+        
+        if (output_name == name) {
+            return i;
+        }
+    }
 }
 
 std::vector<float> StableDiffusion::diffusion_process(const std::vector<float> &encoded_text, const std::vector<float> &unconditional_encoded_text, int num_steps, int seed)
@@ -211,6 +286,9 @@ std::vector<float> StableDiffusion::run_inference(std::unique_ptr<tflite::Interp
                                                   const std::vector<float> &input)
 {
     const std::vector<int> inputs = interpreter->inputs();
+
+    std::cout << input.size() << std::endl;
+
     std::copy(input.begin(), input.end(), interpreter->typed_input_tensor<float>(0));
 
     if (interpreter->Invoke() != kTfLiteOk)
@@ -230,16 +308,10 @@ std::vector<float> StableDiffusion::run_inference(std::unique_ptr<tflite::Interp
                                                   const std::vector<float> &t_emb,
                                                   const std::vector<float> &context)
 {
-    
-    if (interpreter->AllocateTensors() != kTfLiteOk)
-    {
-        std::cerr << "Failed to allocate tensors!" << std::endl;
-        exit(-1);
-    }
     auto inputs = interpreter->inputs();
-    std::copy(latent.begin(), latent.end(), interpreter->typed_input_tensor<float>(0));
+    std::copy(latent.begin(), latent.end(), interpreter->typed_input_tensor<float>(2));
     std::copy(t_emb.begin(), t_emb.end(), interpreter->typed_input_tensor<float>(1));
-    std::copy(context.begin(), context.end(), interpreter->typed_input_tensor<float>(2));
+    std::copy(context.begin(), context.end(), interpreter->typed_input_tensor<float>(0));
 
     if (interpreter->Invoke() != kTfLiteOk)
     {
