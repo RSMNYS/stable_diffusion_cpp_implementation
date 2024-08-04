@@ -10,28 +10,28 @@
 class StableDiffusion
 {
 public:
-    StableDiffusion(const std::string &model_text_encoder_path,
-                    const std::string &model_first_path,
-                    const std::string &model_second_path,
-                    const std::string &model_decoder_path);
+    StableDiffusion(const std::string &text_encoder_model_path,
+                    const std::string &first_model_path,
+                    const std::string &second_model_path,
+                    const std::string &decoder_model_path);
 
     std::vector<uint8_t> generate_image(const std::string &prompt, int num_steps, int seed);
 
 private:
-    std::string model_text_encoder_path;
-    std::string model_first_path;
-    std::string model_second_path;
-    std::string model_decoder_path;
+    std::string text_encoder_model_path;
+    std::string first_model_path;
+    std::string second_model_path;
+    std::string decoder_model_path;
 
     std::unique_ptr<tflite::FlatBufferModel> text_encoder_model;
-    std::unique_ptr<tflite::FlatBufferModel> first_model_model;
-    std::unique_ptr<tflite::FlatBufferModel> second_model_model;
+    std::unique_ptr<tflite::FlatBufferModel> first_model;
+    std::unique_ptr<tflite::FlatBufferModel> second_model;
     std::unique_ptr<tflite::FlatBufferModel> decoder_model;
 
-    std::unique_ptr<tflite::Interpreter> text_encoder;
-    std::unique_ptr<tflite::Interpreter> first_model;
-    std::unique_ptr<tflite::Interpreter> second_model;
-    std::unique_ptr<tflite::Interpreter> decoder;
+    std::unique_ptr<tflite::Interpreter> text_encoder_interpreter;
+    std::unique_ptr<tflite::Interpreter> first_interpreter;
+    std::unique_ptr<tflite::Interpreter> second_interpreter;
+    std::unique_ptr<tflite::Interpreter> decoder_interpreter;
 
     void initialize_text_encoder();
     void initialize_diffusion_models();
@@ -56,9 +56,8 @@ private:
     std::vector<float> run_inference(std::unique_ptr<tflite::Interpreter> &interpreter,
                                      const std::vector<int> &encoded,
                                      const std::vector<int> &pos_ids);
-    
     std::vector<float> run_inference(std::unique_ptr<tflite::Interpreter> &interpreter,
-                                                  const std::vector<float> &input);
+                                     const std::vector<float> &input);
 
     std::vector<float> get_timestep_embedding(int timestep, int dim = 320, float max_period = 10000.0);
 };

@@ -29,40 +29,40 @@ std::vector<float> get_normal(unsigned numbers, unsigned seed = 5, float mean = 
     return d;
 }
 
-StableDiffusion::StableDiffusion(const std::string &model_text_encoder_path,
-                                 const std::string &model_first_path,
-                                 const std::string &model_second_path,
-                                 const std::string &model_decoder_path)
-    : model_text_encoder_path(model_text_encoder_path),
-      model_first_path(model_first_path),
-      model_second_path(model_second_path),
-      model_decoder_path(model_decoder_path) {}
+StableDiffusion::StableDiffusion(const std::string &text_encoder_model_path,
+                                 const std::string &first_model_path,
+                                 const std::string &second_model_path,
+                                 const std::string &decoder_model_path)
+    : text_encoder_model_path(text_encoder_model_path),
+      first_model_path(first_model_path),
+      second_model_path(second_model_path),
+      decoder_model_path(decoder_model_path) {}
 
 void StableDiffusion::initialize_text_encoder()
 {
-    if (!text_encoder)
+    if (!text_encoder_interpreter)
     {
         std::cout << "Loading text encoder model..." << std::endl;
-        load_model(model_text_encoder_path, text_encoder_model, text_encoder);
+        load_model(text_encoder_model_path, text_encoder_model, text_encoder_interpreter);
     }
 }
 
 void StableDiffusion::initialize_diffusion_models()
 {
-    if (!first_model || !second_model)
+    if (!first_interpreter || !second_interpreter)
     {
         std::cout << "Loading diffusion models..." << std::endl;
-        load_model(model_first_path, first_model_model, first_model);
-        load_model(model_second_path, second_model_model, second_model);
+        load_model(first_model_path, first_model, first_interpreter);
+        load_model(second_model_path, second_model, second_interpreter);
     }
 }
 
 void StableDiffusion::initialize_decoder()
 {
-    if (!decoder)
+    if (!decoder_interpreter)
     {
         std::cout << "Loading decoder model..." << std::endl;
-        load_model(model_decoder_path, decoder_model, decoder);
+        load_model(decoder_model_path, decoder_model, decoder_interpreter);
     }
 }
 
@@ -74,7 +74,7 @@ std::vector<float> StableDiffusion::encode_prompt(const std::string &prompt)
     auto encoded = bpe_encoder.encode(prompt);
     auto pos_ids = bpe_encoder.position_ids();
 
-    return run_inference(text_encoder, encoded, pos_ids);
+    return run_inference(text_encoder_interpreter, encoded, pos_ids);
 }
 
 std::vector<float> StableDiffusion::encode_unconditional()
@@ -85,7 +85,7 @@ std::vector<float> StableDiffusion::encode_unconditional()
     auto unconditioned_tokens = bpe_encoder.unconditioned_tokens();
     auto pos_ids = bpe_encoder.position_ids();
 
-    return run_inference(text_encoder, unconditioned_tokens, pos_ids);
+    return run_inference(text_encoder_interpreter, unconditioned_tokens, pos_ids);
 }
 
 std::vector<float> StableDiffusion::diffusion_step(const std::vector<float> &latent,
@@ -94,14 +94,14 @@ std::vector<float> StableDiffusion::diffusion_step(const std::vector<float> &lat
 {
 
     // Prepare the first model's inputs
-    auto first_input_details = first_model->inputs();
+    auto first_input_details = first_interpreter->inputs();
 
-    std::copy(context.begin(), context.end(), first_model->typed_input_tensor<float>(0));
-    std::copy(t_emb.begin(), t_emb.end(), first_model->typed_input_tensor<float>(1));
-    std::copy(latent.begin(), latent.end(), first_model->typed_input_tensor<float>(2));
+    std::copy(context.begin(), context.end(), first_interpreter->typed_input_tensor<float>(0));
+    std::copy(t_emb.begin(), t_emb.end(), first_interpreter->typed_input_tensor<float>(1));
+    std::copy(latent.begin(), latent.end(), first_interpreter->typed_input_tensor<float>(2));
 
     // Invoke the first model
-    if (first_model->Invoke() != kTfLiteOk)
+    if (first_interpreter->Invoke() != kTfLiteOk)
     {
         std::cerr << "Failed to invoke the first diffusion model!\n"
                   << std::endl;
@@ -109,7 +109,7 @@ std::vector<float> StableDiffusion::diffusion_step(const std::vector<float> &lat
     }
 
     // Get the outputs from the first model
-    auto first_output_details = first_model->outputs();
+    auto first_output_details = first_interpreter->outputs();
 
     std::vector<std::vector<float>> first_model_outputs;
     std::vector<std::string> output_names = {
@@ -118,7 +118,7 @@ std::vector<float> StableDiffusion::diffusion_step(const std::vector<float> &lat
         "Identity_8", "Identity_7", "Identity_2"};
 
     // Prepare the second model's inputs based on first model's outputs
-    auto second_input_details = second_model->inputs();
+    auto second_input_details = second_interpreter->inputs();
 
     std::vector<std::string> input_names = {
         "args_0", "args_0_1", "args_0_2", "args_0_4", "args_0_3", "args_0_5",
@@ -126,25 +126,25 @@ std::vector<float> StableDiffusion::diffusion_step(const std::vector<float> &lat
 
     for (size_t i = 0; i < input_names.size(); ++i)
     {
-        int input_index = get_tensor_index_by_input_name(second_model, input_names[i]);
-        int output_index = get_tensor_index_by_output_name(first_model, output_names[i]);
+        int input_index = get_tensor_index_by_input_name(second_interpreter, input_names[i]);
+        int output_index = get_tensor_index_by_output_name(first_interpreter, output_names[i]);
 
-        const std::vector<int> outputs = first_model->outputs();
-        auto output = first_model->typed_tensor<float>(outputs[output_index]);
-        std::copy(output, output + first_model->tensor(outputs[output_index])->bytes / 4, second_model->typed_input_tensor<float>(input_index));
+        const std::vector<int> outputs = first_interpreter->outputs();
+        auto output = first_interpreter->typed_tensor<float>(outputs[output_index]);
+        std::copy(output, output + first_interpreter->tensor(outputs[output_index])->bytes / 4, second_interpreter->typed_input_tensor<float>(input_index));
     }
 
     // Invoke the second model
-    if (second_model->Invoke() != kTfLiteOk)
+    if (second_interpreter->Invoke() != kTfLiteOk)
     {
         std::cerr << "Failed to invoke the second diffusion model!\n"
                   << std::endl;
         exit(-1);
     }
 
-    const std::vector<int> outputs = second_model->outputs();
-    auto output = second_model->typed_tensor<float>(outputs[0]);
-    return std::vector<float>(output, output + second_model->tensor(outputs[0])->bytes / sizeof(float));
+    const std::vector<int> outputs = second_interpreter->outputs();
+    auto output = second_interpreter->typed_tensor<float>(outputs[0]);
+    return std::vector<float>(output, output + second_interpreter->tensor(outputs[0])->bytes / sizeof(float));
 }
 
 // Helper function to get tensor index by name
@@ -220,7 +220,7 @@ std::vector<uint8_t> StableDiffusion::decode_image(const std::vector<float> &lat
 {
     initialize_decoder();
 
-    auto decoded = run_inference(decoder, latent);
+    auto decoded = run_inference(decoder_interpreter, latent);
 
     std::valarray<float> d(decoded.data(), decoded.size());
     d = (d + 1) / 2 * 255;
