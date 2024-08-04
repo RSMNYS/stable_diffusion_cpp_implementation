@@ -7,7 +7,8 @@
 #include "tensorflow/lite/interpreter.h"
 #include "tensorflow/lite/model_builder.h"
 
-class StableDiffusion {
+class StableDiffusion
+{
 public:
     StableDiffusion(const std::string &model_text_encoder_path,
                     const std::string &model_first_path,
@@ -38,31 +39,23 @@ private:
 
     std::vector<float> encode_prompt(const std::string &prompt);
     std::vector<float> encode_unconditional();
-    std::vector<float> diffusion_process(const std::vector<float> &encoded_text, 
+    std::vector<float> diffusion_process(const std::vector<float> &encoded_text,
                                          const std::vector<float> &unconditional_encoded_text,
                                          int num_steps, int seed);
     std::vector<uint8_t> decode_image(const std::vector<float> &latent);
 
     std::vector<float> diffusion_step(const std::vector<float> &latent,
-                                                   const std::vector<float> &t_emb,
-                                                   const std::vector<float> &context);
+                                      const std::vector<float> &t_emb,
+                                      const std::vector<float> &context);
 
-    int get_tensor_index_by_input_name(std::unique_ptr<tflite::Interpreter> &interpreter, const std::string& name);
-    int get_tensor_index_by_output_name(std::unique_ptr<tflite::Interpreter> &interpreter, const std::string& name);
+    int get_tensor_index_by_input_name(std::unique_ptr<tflite::Interpreter> &interpreter, const std::string &name);
+    int get_tensor_index_by_output_name(std::unique_ptr<tflite::Interpreter> &interpreter, const std::string &name);
 
     void load_model(const std::string &model_path, std::unique_ptr<tflite::FlatBufferModel> &model, std::unique_ptr<tflite::Interpreter> &interpreter);
 
     std::vector<float> run_inference(std::unique_ptr<tflite::Interpreter> &interpreter,
                                      const std::vector<int> &encoded,
                                      const std::vector<int> &pos_ids);
-
-    std::vector<float> run_inference(std::unique_ptr<tflite::Interpreter> &interpreter,
-                                     const std::vector<float> &input);
-
-    std::vector<float> run_inference(std::unique_ptr<tflite::Interpreter> &interpreter,
-                                     const std::vector<float> &latent,
-                                     const std::vector<float> &t_emb,
-                                     const std::vector<float> &context);
 
     std::vector<float> get_timestep_embedding(int timestep, int dim = 320, float max_period = 10000.0);
 };
