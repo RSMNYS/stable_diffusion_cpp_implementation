@@ -1,6 +1,6 @@
 load("@org_tensorflow//tensorflow/lite:build_def.bzl", "tflite_copts")
 load("@org_tensorflow//tensorflow/lite:special_rules.bzl", "tflite_portable_test_suite")
-load("//src:build_def.bzl", "android_linkopts")
+load("//:build_def.bzl", "android_linkopts")
 
 package(
     default_visibility = [
