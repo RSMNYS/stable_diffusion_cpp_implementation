@@ -162,6 +162,7 @@ int StableDiffusion::get_tensor_index_by_input_name(std::unique_ptr<tflite::Inte
             return i;
         }
     }
+    return -1;
 }
 
 int StableDiffusion::get_tensor_index_by_output_name(std::unique_ptr<tflite::Interpreter> &interpreter, const std::string &name)
@@ -176,6 +177,7 @@ int StableDiffusion::get_tensor_index_by_output_name(std::unique_ptr<tflite::Int
             return i;
         }
     }
+    return -1;
 }
 
 std::vector<float> StableDiffusion::diffusion_process(const std::vector<float> &encoded_text, const std::vector<float> &unconditional_encoded_text, int num_steps, int seed)
